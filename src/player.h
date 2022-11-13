@@ -147,6 +147,12 @@ private:
     double M_angle_neck_committed;
 
     //
+    // acceleration
+    //
+    PVector M_left_accel;
+    PVector M_right_accel;
+
+    //
     // collision state
     //
     bool M_ball_collide;
@@ -415,12 +421,22 @@ public:
     // 2011-05-14 akiyama
     void doLongKick();
 
+    // 2022-11-13 akiyama
+    PVector calculateAccel( const double normalized_power,
+                            double dir );
+    void dash( const double left_power,
+               const double left_dir,
+               const double right_power,
+               const double right_dir );
+
 protected:
 
     virtual
     void turnImpl() override;
     virtual
     void updateAngle() override;
+    virtual
+    void composeAccel() override;
     virtual
     void collidedWithPost() override;
     virtual

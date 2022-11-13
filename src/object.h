@@ -203,6 +203,22 @@ operator-( const PVector & lhs,
     return PVector( lhs ) -= rhs;
 }
 
+inline
+PVector
+operator*( const PVector & lhs,
+           const double rhs )
+{
+    return PVector( lhs ) *= rhs;
+}
+
+inline
+PVector
+operator*( const double lhs,
+           const PVector & rhs )
+{
+    return PVector( rhs ) *= lhs;
+}
+
 
 inline
 std::ostream &
@@ -600,6 +616,9 @@ protected:
     void updateAngle() = 0;
 
     virtual
+    void composeAccel() = 0;
+
+    virtual
     void collidedWithPost() = 0;
 
     virtual
@@ -635,6 +654,10 @@ public:
 
     virtual
     void updateAngle() override
+      { }
+
+    virtual
+    void composeAccel() override
       { }
 
     virtual

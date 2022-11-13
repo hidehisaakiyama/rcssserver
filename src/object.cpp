@@ -475,6 +475,8 @@ MPObject::wind()
 void
 MPObject::_inc()
 {
+    composeAccel();
+
     if ( M_accel.x || M_accel.y )
     {
         double max_a = maxAccel();

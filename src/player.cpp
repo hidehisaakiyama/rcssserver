@@ -183,6 +183,9 @@ Player::Player( Stadium & stadium,
       M_angle_neck( 0.0 ),
       M_angle_neck_committed( 0.0 ),
       //
+      M_left_accel( 0.0, 0.0 ),
+      M_right_accel( 0.0, 0.0 ),
+      //
       M_ball_collide( false ),
       M_player_collide( false ),
       M_post_collide( false ),
@@ -1092,6 +1095,7 @@ Player::dash( double power,
 
         push( PVector::fromPolar( effective_dash_power,
                                   normalize_angle( angleBodyCommitted() + Deg2Rad( dir ) ) ) );
+        M_left_accel = M_right_accel = accel();
 
         M_dash_cycles = 1;
         ++M_dash_count;
@@ -1343,6 +1347,98 @@ Player::doLongKick()
 
     ++M_kick_count;
 }
+
+
+PVector
+Player::calculateAccel( const double normalized_power,
+                        double dir )
+{
+    const ServerParam & param = ServerParam::instance();
+
+    dir = NormalizeDashAngle( dir );
+
+    if ( param.dashAngleStep() < EPS )
+    {
+        // players can dash in any direction.
+    }
+    else
+    {
+        // The dash direction is discretized by server::dash_angle_step
+        dir = param.dashAngleStep() * rint( dir / param.dashAngleStep() );
+    }
+
+    double dir_rate = ( std::fabs( dir ) > 90.0
+                        ? param.backDashRate() - ( ( param.backDashRate() - param.sideDashRate() )
+                                                       * ( 1.0 - ( std::fabs( dir ) - 90.0 ) / 90.0 ) )
+                        : param.sideDashRate() + ( ( 1.0 - param.sideDashRate() )
+                                                   * ( 1.0 - std::fabs( dir ) / 90.0 ) )
+                        );
+    dir_rate = rcss::bound( 0.0, dir_rate, 1.0 );
+
+    double effective_dash_power = std::fabs( effort()
+                                             * normalized_power
+                                             * dir_rate
+                                             * M_player_type->dashPowerRate() );
+    if ( pos().y < 0.0 )
+    {
+        effective_dash_power /= ( side() == LEFT
+                                  ? param.slownessOnTopForLeft()
+                                  : param.slownessOnTopForRight() );
+    }
+
+    if ( normalized_power < 0.0 )
+    {
+        dir += 180.0;
+    }
+
+    return PVector::fromPolar( effective_dash_power,
+                               normalize_angle( angleBodyCommitted() + Deg2Rad( dir ) ) );
+}
+
+
+void
+Player::dash( const double left_power,
+              const double left_dir,
+              const double right_power,
+              const double right_dir )
+{
+    if ( M_command_done )
+    {
+        return;
+    }
+
+    const double left_normalized_power = NormalizeDashPower( left_power );
+    const double right_normalized_power = NormalizeDashPower( right_power );
+
+    double left_consumed_stamina = ( left_normalized_power < 0.0
+                                     ? left_normalized_power * -1.0
+                                     : left_normalized_power * 0.5 );
+    double right_consumed_stamina = ( right_normalized_power < 0.0
+                                      ? right_normalized_power * -1.0
+                                      : right_normalized_power * 0.5 );
+    {
+        double total_consumed = left_consumed_stamina + right_consumed_stamina;
+        if ( total_consumed > stamina() + M_player_type->extraStamina() )
+        {
+            double reduced_rate = ( stamina() + M_player_type->extraStamina() ) / total_consumed;
+            left_consumed_stamina *= reduced_rate;
+            right_consumed_stamina *= reduced_rate;
+        }
+    }
+
+    const double left_actual_power = ( left_normalized_power < 0.0
+                                       ? left_consumed_stamina * -1.0
+                                       : left_consumed_stamina * 2.0 );
+    const double right_actual_power = ( right_normalized_power < 0.0
+                                        ? right_consumed_stamina * -1.0
+                                        : right_consumed_stamina * 2.0 );
+
+    M_left_accel = calculateAccel( left_actual_power, left_dir );
+    M_right_accel = calculateAccel( right_actual_power, right_dir );
+
+    M_stamina = std::max( 0.0, stamina() - left_consumed_stamina - right_consumed_stamina );
+}
+
 
 void
 Player::goalieCatch( double dir )
@@ -2337,6 +2433,32 @@ Player::updateAngle()
 {
     M_angle_body_committed = this->M_angle_body;
     M_angle_neck_committed = this->M_angle_neck;
+}
+
+void
+Player::composeAccel()
+{
+    PVector vel_l = vel() + M_left_accel;
+    PVector vel_r = vel() + M_right_accel;
+
+    vel_l.rotate( -angleBodyCommitted() );
+    vel_r.rotate( -angleBodyCommitted() );
+
+    const double speed = ( vel_l.x + vel_r.x ) * 0.5;
+    //const double radius = ServerParam::instance().playerSize() * ( vel_l.x + vel_r.x ) / ( vel_l.x - vel_r.x );
+    const double angular_vel = ( vel_l.x - vel_r.x ) / ( 2 * ServerParam::instance().playerSize() );
+
+    PVector move( speed * std::cos( angular_vel ),
+                  speed * std::sin( angular_vel ) );
+    move.y += vel_l.y;
+    move.y += vel_r.y;
+    move.rotate( angleBodyCommitted() );
+
+    M_accel = move - vel();
+    M_angle_body = normalize_angle( angleBodyCommitted()
+                                    + ( 1.0 + drand( -M_randp, M_randp ) )
+                                    * NormalizeMoment( Rad2Deg( angular_vel ) )
+                                    / ( 1.0 + M_player_type->inertiaMoment() * vel().r() ) );
 }
 
 void
